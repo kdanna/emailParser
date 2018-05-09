@@ -14,7 +14,7 @@ import (
 
 func main() {
 	fmt.Println("entering mailparse package")
-	//Parse parses the command-line flags from os.Args[1:]. Must be called after all flags are defined and before flags are accessed by the program.
+	// Parse parses the command-line flags from os.Args[1:]. Must be called after all flags are defined and before flags are accessed by the program.
 	flag.Parse()
 	filename := flag.Arg(0) // this is the file that will be passed as a cli argument ( this .tar.gz file containing emails )
 	file, err := os.Open(filename)
@@ -26,35 +26,34 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	defer g.Close()
 
 	// Then pass gzip reader to the tar reader
 	t := tar.NewReader(g)
 
-	// create the csv output to put parsed results from the input file
-	csvfile, err := os.Create("output.csv")
-	if err != nil {
-		fmt.Println("Error:", err)
-		return
-	}
-	defer csvfile.Close() // defer the close on the csvfile until the program is done executing
+	messageCounter := 0
+	headerValueCounter := 0                            // keep track of how many email messages are read
+	csvDataOutter := make([][]string, messageCounter)  // in order to write to a csv we need a slice containing slices of strings. This is the outter slice
+	csvDataInner := make([]string, headerValueCounter) // this is the inner slice
 
-	messageCounter := 0                               // keep track of how many email messages we read
-	csvDataOutter := make([][]string, messageCounter) // inorder to write to a csv we need a slice containing slices of strings. This is outter slice
-	csvDataInner := make([]string, 100)               // this is inner slice
-
+	// create an infinite loop that will break out once the end of the .tar file is reached EOF
 	for {
 		h, err := t.Next()
-		if err == io.EOF && h != nil {
-			break
-		}
-		messageCounter++
-		if err != nil {
-			log.Fatal(err)
-		}
-		if h.Typeflag == tar.TypeDir {
-			continue
+
+		if err == io.EOF {
+			break // end of archive file
 		}
 
+		if err != nil {
+			log.Fatal("next error", err)
+		}
+
+		if h.Typeflag == tar.TypeDir {
+			continue // if the tar Type is a dir, continue
+		}
+
+		messageCounter++ // increment the counter
+		// fmt.Printf("Contents of %+v:\n", h.Name)
 		message, err := mail.ReadMessage(t)
 		if err != nil {
 			log.Fatal(err)
@@ -63,29 +62,35 @@ func main() {
 		for h, val := range message.Header {
 			for _, headerValue := range val {
 				// fmt.Printf("%s, %+v \n", h, headerValue)
+				headerValueCounter++
 				csvDataInner = append(csvDataInner, h, headerValue)
 
 			}
 		}
+	}
 
-		csvDataOutter = append(csvDataOutter, csvDataInner)
+	fmt.Printf("\n messageeCounter, %d \n", messageCounter)
+	fmt.Printf("\n headerValueCounter, %d \n", headerValueCounter)
 
-		w := csv.NewWriter(csvfile)
-		defer w.Flush()
-		if err := w.Error(); err != nil {
-			log.Fatalln("error writing csv:", err)
-		}
+	csvDataOutter = append(csvDataOutter, csvDataInner)
 
-		fmt.Printf("\n This is the csvDataOutter Slice %+v", csvDataOutter)
+	// create the csv output to put parsed results from the input file
+	csvfile, err := os.Create("output.csv")
+	if err != nil {
+		fmt.Println("Error:", err)
+		return
+	}
+	defer csvfile.Close() // defer the close on the csvfile until the program is done executing
+	w := csv.NewWriter(csvfile)
+	if err := w.Error(); err != nil {
+		log.Fatalln("error writing csv:", err)
+	}
 
-		err = w.WriteAll(csvDataOutter)
-		if err != nil {
-			log.Fatalln("something went wrong writing file", err)
-		}
+	fmt.Printf("\n This is the csvDataOutter Slice %+v", csvDataOutter)
 
-		// fmt.Printf("\n This is the csvDataOutter Slice %+v", csvDataOutter)
-		// fmt.Printf("\n This is the csvDataInner Slice %+v", len(csvDataInner))
-		// fmt.Println("\n count of messages", messageCounter)
+	err = w.WriteAll(csvDataOutter)
+	if err != nil {
+		log.Fatalln("something went wrong writing file", err)
 	}
 
 }
